@@ -1,5 +1,7 @@
 # Mikrotik RouterOS automatic backup and update
 
+`** This fork just updates, no backups or emails **`
+
 This script provides an ability to create Mikrotik's daily backups to email. You can also enable automatic RouterOS upgrade or leave only notifications about new firmware versions.
 
 ## Features:
