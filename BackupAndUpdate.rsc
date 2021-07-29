@@ -28,7 +28,7 @@
 #
 # osnotify 	- 	The script will send email notification only (without backups) if a new RouterOS is available.
 #				Change parameter `forceBackup` if you need the script to create backups every time when it runs.
-:local scriptMode "backup";
+:local scriptMode "osupdate";
 
 ## Additional parameter if you set `scriptMode` to `osupdate` or `osnotify`
 # Set `true` if you want the script to perform backup every time it's fired, whatever script mode is set.
@@ -59,12 +59,6 @@
 
 :log info "\r\n$SMP script \"Mikrotik RouterOS automatic backup & update\" started.";
 :log info "$SMP Script Mode: $scriptMode, forceBackup: $forceBackup";
-
-#Check proper email config
-:if ([:len $emailAddress] = 0 or [:len [/tool e-mail get address]] = 0 or [:len [/tool e-mail get from]] = 0) do={
-	:log error ("$SMP Email configuration is not correct, please check Tools -> Email. Script stopped.");   
-	:error "$SMP bye!";
-}
 
 #Check if proper identity name is set
 if ([:len [/system identity get name]] = 0 or [/system identity get name] = "MikroTik") do={
@@ -182,7 +176,7 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 :local isOsUpdateAvailable 	false;
 :local isOsNeedsToBeUpdated	false;
 
-:local isSendEmailRequired	true;
+:local isSendEmailRequired	false;
 
 :local mailSubject   		"$SMP Device - $deviceIdentityNameShort.";
 :local mailBody 	 		"";
@@ -234,27 +228,14 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 			} else={
 				:set isSendEmailRequired false;
 				:log info ("$SMP System is already up to date.");
-				:set mailSubject ($mailSubject . " No new OS updates.");
-				:set mailBody 	 ($mailBody . "Your system is up to date.");
 			}
 		};
 	} else={
 		:set scriptMode "backup";
 	};
 
-	if ($forceBackup = true) do={
-		# In this case the script will always send email, because it has to create backups
-		:set isSendEmailRequired true;
-	}
-
 	# if new OS version is available to install
-	if ($isOsUpdateAvailable = true and $isSendEmailRequired = true) do={
-		# If we only need to notify about new available version
-		if ($scriptMode = "osnotify") do={
-			:set mailSubject 	($mailSubject . " New RouterOS is available! v.$deviceOsVerAvail.")
-			:set mailBody 		($mailBody . "New RouterOS version is available to install: v.$deviceOsVerAvail ($updateChannel) \r\n$changelogUrl")
-		}
-
+	if ($isOsUpdateAvailable = true) do={
 		# if we need to initiate RouterOs update process
 		if ($scriptMode = "osupdate") do={
 			:set isOsNeedsToBeUpdated true;
@@ -265,8 +246,6 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 					:log info ("$SMP New patch version of RouterOS firmware is available.");   
 				} else={
 					:log info ("$SMP New major or minor version of RouterOS firmware is available. You need to update it manually.");
-					:set mailSubject 	($mailSubject . " New RouterOS: v.$deviceOsVerAvail needs to be installed manually.");
-					:set mailBody 		($mailBody . "New major or minor RouterOS version is available to install: v.$deviceOsVerAvail ($updateChannel). \r\nYou chose to automatically install only patch updates, so this major update you need to install manually. \r\n$changelogUrl");
 					:set isOsNeedsToBeUpdated false;
 				}
 			}
@@ -274,35 +253,11 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 			#Check again, because this variable could be changed during checking for installing only patch updats
 			if ($isOsNeedsToBeUpdated = true) do={
 				:log info ("$SMP New RouterOS is going to be installed! v.$deviceOsVerInst -> v.$deviceOsVerAvail");
-				:set mailSubject	($mailSubject . " New RouterOS is going to be installed! v.$deviceOsVerInst -> v.$deviceOsVerAvail.");
-				:set mailBody 		($mailBody . "Your Mikrotik will be updated to the new RouterOS version from v.$deviceOsVerInst to v.$deviceOsVerAvail (Update channel: $updateChannel) \r\nFinal report with the detailed information will be sent when update process is completed. \r\nIf you have not received second email in the next 5 minutes, then probably something went wrong. (Check your device logs)");
 				#!! There is more code connected to this part and first step at the end of the script.
 			}
 		
 		}
 	}
-
-	## Checking If the script needs to create a backup
-	:log info ("$SMP Checking If the script needs to create a backup.");
-	if ($forceBackup = true or $scriptMode = "backup" or $isOsNeedsToBeUpdated = true) do={
-		:log info ("$SMP Creating system backups.");
-		if ($isOsNeedsToBeUpdated = true) do={
-			:set backupNameFinal $backupNameBeforeUpd;
-		};
-		if ($scriptMode != "backup") do={
-			:set mailBody ($mailBody . "\r\n\r\n");
-		};
-
-		:set mailSubject	($mailSubject . " Backup was created.");
-		:set mailBody		($mailBody . "System backups were created and attached to this email.");
-
-		:set mailAttachments [$buGlobalFuncCreateBackups backupName=$backupNameFinal backupPassword=$backupPassword sensetiveDataInConfig=$sensetiveDataInConfig];
-	} else={
-		:log info ("$SMP There is no need to create a backup.");
-	}
-
-	# Combine fisrst step email
-	:set mailBody ($mailBody . $mailBodyDeviceInfo . $mailBodyCopyright);
 }
 
 ## 	STEP TWO: (after first reboot) routerboard firmware upgrade
@@ -336,50 +291,11 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 	:log info "Bkp&Upd: RouterOS and routerboard upgrade process was completed. New RouterOS version: v.$deviceOsVerInst, routerboard firmware: v.$deviceRbCurrentFw.";
 	## Small delay in case mikrotik needs some time to initialize connections
 	:log info "$SMP The final email with report and backups of upgraded system will be sent in a minute.";
-	:delay 1m;
-	:set mailSubject	($mailSubject . " RouterOS Upgrade is completed, new version: v.$deviceOsVerInst!");
-	:set mailBody 	  	"RouterOS and routerboard upgrade process was completed. \r\nNew RouterOS version: v.$deviceOsVerInst, routerboard firmware: v.$deviceRbCurrentFw. \r\n$changelogUrl \r\n\r\nBackups of the upgraded system are in the attachment of this email.  $mailBodyDeviceInfo $mailBodyCopyright";
-	:set mailAttachments [$buGlobalFuncCreateBackups backupName=$backupNameAfterUpd backupPassword=$backupPassword sensetiveDataInConfig=$sensetiveDataInConfig];
 }
 
 # Remove functions from global environment to keep it fresh and clean.
 :do {/system script environment remove buGlobalFuncGetOsVerNum;} on-error={}
 :do {/system script environment remove buGlobalFuncCreateBackups;} on-error={}
-
-##
-## SENDING EMAIL
-##
-# Trying to send email with backups in attachment.
-
-:if ($isSendEmailRequired = true) do={
-	:log info "$SMP Sending email message, it will take around half a minute...";
-	:do {/tool e-mail send to=$emailAddress subject=$mailSubject body=$mailBody file=$mailAttachments;} on-error={
-		:delay 5s;
-		:log error "$SMP could not send email message ($[/tool e-mail get last-status]). Going to try it again in a while."
-
-		:delay 5m;
-
-		:do {/tool e-mail send to=$emailAddress subject=$mailSubject body=$mailBody file=$mailAttachments;} on-error={
-			:delay 5s;
-			:log error "$SMP could not send email message ($[/tool e-mail get last-status]) for the second time."
-
-			if ($isOsNeedsToBeUpdated = true) do={
-				:set isOsNeedsToBeUpdated false;
-				:log warning "$SMP script is not going to initialise update process due to inability to send backups to email."
-			}
-		}
-	}
-
-	:delay 30s;
-	
-	:if ([:len $mailAttachments] > 0 and [/tool e-mail get last-status] = "succeeded") do={
-		:log info "$SMP File system cleanup."
-		/file remove $mailAttachments; 
-		:delay 2s;
-	}
-	
-}
-
 
 # Fire RouterOs update process
 if ($isOsNeedsToBeUpdated = true) do={
