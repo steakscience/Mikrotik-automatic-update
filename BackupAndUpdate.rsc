@@ -14,31 +14,7 @@
 # Minimum supported RouterOS version is v6.43.7
 #
 #----------MODIFY THIS SECTION AS NEEDED----------------------------------------
-## Notification e-mail
-## (Make sure you have configurated Email settings in Tools -> Email)
-:local emailAddress "yourmail@example.com";
-
-## Script mode, possible values: backup, osupdate, osnotify.
-# backup 	- 	Only backup will be performed. (default value, if none provided)
-#
-# osupdate 	- 	The Script will install a new RouterOS if it is available.
-#				It will also create backups before and after update process (does not matter what value is set to `forceBackup`)
-#				Email will be sent only if a new RouterOS version is available.
-#				Change parameter `forceBackup` if you need the script to create backups every time when it runs (even when no updates).
-#
-# osnotify 	- 	The script will send email notification only (without backups) if a new RouterOS is available.
-#				Change parameter `forceBackup` if you need the script to create backups every time when it runs.
 :local scriptMode "osupdate";
-
-## Additional parameter if you set `scriptMode` to `osupdate` or `osnotify`
-# Set `true` if you want the script to perform backup every time it's fired, whatever script mode is set.
-:local forceBackup false;
-
-## Backup encryption password, no encryption if no password.
-:local backupPassword ""
-
-## If true, passwords will be included in exported config.
-:local sensetiveDataInConfig false;
 
 ## Update channel. Possible values: stable, long-term, testing, development
 :local updateChannel "stable";
@@ -58,7 +34,7 @@
 :local SMP "Bkp&Upd:"
 
 :log info "\r\n$SMP script \"Mikrotik RouterOS automatic backup & update\" started.";
-:log info "$SMP Script Mode: $scriptMode, forceBackup: $forceBackup";
+:log info "$SMP Script Mode: $scriptMode;
 
 #Check if proper identity name is set
 if ([:len [/system identity get name]] = 0 or [/system identity get name] = "MikroTik") do={
@@ -120,41 +96,6 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 	:return $osVerNum;
 }
 
-# Function creates backups (system and config) and returns array with names
-# Possible arguments: 
-#	`backupName` 			| string	| backup file name, without extension!
-#	`backupPassword`		| string 	|
-#	`sensetiveDataInConfig`	| boolean 	|
-# Example:
-# :put [$buGlobalFuncCreateBackups name="daily-backup"];
-:global buGlobalFuncCreateBackups do={
-	:log info ("$SMP Global function \"buGlobalFuncCreateBackups\" was fired.");  
-	
-	:local backupFileSys "$backupName.backup";
-	:local backupFileConfig "$backupName.rsc";
-	:local backupNames {$backupFileSys;$backupFileConfig};
-
-	## Make system backup
-	:if ([:len $backupPassword] = 0) do={
-		/system backup save dont-encrypt=yes name=$backupName;
-	} else={
-		/system backup save password=$backupPassword name=$backupName;
-	}
-	:log info ("$SMP System backup created. $backupFileSys");   
-
-	## Export config file
-	:if ($sensetiveDataInConfig = true) do={
-		/export compact file=$backupName;
-	} else={
-		/export compact hide-sensitive file=$backupName;
-	}
-	:log info ("$SMP Config file was exported. $backupFileConfig");   
-
-	#Delay after creating backups
-	:delay 5s;	
-	:return $backupNames;
-}
-
 :global buGlobalVarUpdateStep;
 ############### ^^^^^^^^^ GLOBALS ^^^^^^^^^ ###############
 
@@ -176,22 +117,6 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 :local isOsUpdateAvailable 	false;
 :local isOsNeedsToBeUpdated	false;
 
-:local isSendEmailRequired	false;
-
-:local mailSubject   		"$SMP Device - $deviceIdentityNameShort.";
-:local mailBody 	 		"";
-
-:local mailBodyDeviceInfo	"\r\n\r\nDevice information: \r\nIdentity: $deviceIdentityName \r\nModel: $deviceRbModel \r\nSerial number: $deviceRbSerialNumber \r\nCurrent RouterOS: $deviceOsVerInst ($[/system package update get channel]) $[/system resource get build-time] \r\nCurrent routerboard FW: $deviceRbCurrentFw \r\nDevice uptime: $[/system resource get uptime]";
-:local mailBodyCopyright 	"\r\n\r\nMikrotik RouterOS automatic backup & update \r\nhttps://github.com/beeyev/Mikrotik-RouterOS-automatic-backup-and-update";
-:local changelogUrl			("Check RouterOS changelog: https://mikrotik.com/download/changelogs/" . $updateChannel . "-release-tree");
-
-:local backupName 			"$deviceIdentityName.$deviceRbModel.$deviceRbSerialNumber.v$deviceOsVerInst.$deviceUpdateChannel.$dateTime";
-:local backupNameBeforeUpd	"backup_before_update_$backupName";
-:local backupNameAfterUpd	"backup_after_update_$backupName";
-
-:local backupNameFinal		$backupName;
-:local mailAttachments		[:toarray ""];
-
 :local updateStep $buGlobalVarUpdateStep;
 :do {/system script environment remove buGlobalVarUpdateStep;} on-error={}
 :if ([:len $updateStep] = 0) do={
@@ -199,8 +124,7 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 }
 
 
-## 	STEP ONE: Creating backups, checking for new RouterOs version and sending email with backups,
-## 	steps 2 and 3 are fired only if script is set to automatically update device and if new RouterOs is available.
+## 	STEP ONE: Checking for new RouterOs version
 :if ($updateStep = 1) do={
 	:log info ("$SMP Performing the first step.");   
 
@@ -215,8 +139,6 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 		# If there is a problem getting information about available RouterOS from server
 		:if ([:len $deviceOsVerAvail] = 0) do={
 			:log warning ("$SMP There is a problem getting information about new RouterOS from server.");
-			:set mailSubject	($mailSubject . " Error: No data about new RouterOS!")
-			:set mailBody 		($mailBody . "Error occured! \r\nMikrotik couldn't get any information about new RouterOS from server! \r\nWatch additional information in device logs.")
 		} else={
 			#Get numeric version of OS
 			:set deviceOsVerAvailNum [$buGlobalFuncGetOsVerNum paramOsVer=$deviceOsVerAvail];
@@ -226,12 +148,9 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 				:set isOsUpdateAvailable true;
 				:log info ("$SMP New RouterOS is available! $deviceOsVerAvail");
 			} else={
-				:set isSendEmailRequired false;
 				:log info ("$SMP System is already up to date.");
 			}
 		};
-	} else={
-		:set scriptMode "backup";
 	};
 
 	# if new OS version is available to install
@@ -266,8 +185,6 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 	:log info ("$SMP Performing the second step.");   
 	## RouterOS is the latest, let's check for upgraded routerboard firmware
 	if ($deviceRbCurrentFw != $deviceRbUpgradeFw) do={
-		:set isSendEmailRequired false;
-		:delay 10s;
 		:log info "$SMP Upgrading routerboard firmware from v.$deviceRbCurrentFw to v.$deviceRbUpgradeFw";
 		## Start the upgrading process
 		/system routerboard upgrade;
@@ -290,12 +207,10 @@ if ([:len [/system identity get name]] = 0 or [/system identity get name] = "Mik
 	:log info ("$SMP Performing the third step.");   
 	:log info "Bkp&Upd: RouterOS and routerboard upgrade process was completed. New RouterOS version: v.$deviceOsVerInst, routerboard firmware: v.$deviceRbCurrentFw.";
 	## Small delay in case mikrotik needs some time to initialize connections
-	:log info "$SMP The final email with report and backups of upgraded system will be sent in a minute.";
 }
 
 # Remove functions from global environment to keep it fresh and clean.
 :do {/system script environment remove buGlobalFuncGetOsVerNum;} on-error={}
-:do {/system script environment remove buGlobalFuncCreateBackups;} on-error={}
 
 # Fire RouterOs update process
 if ($isOsNeedsToBeUpdated = true) do={
