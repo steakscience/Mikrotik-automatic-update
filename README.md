@@ -1,4 +1,4 @@
-# Mikrotik RouterOS automatic backup and update
+# Mikrotik RouterOS automatic updates (no backups, no emails)
 
 `** This fork just updates, no backups or emails **`
 
